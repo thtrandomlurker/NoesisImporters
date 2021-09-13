@@ -14,6 +14,7 @@ def registerNoesisTypes():
     noesis.setHandlerLoadModel(handle, amdLoadModel)
     
     return 1
+
 # Check that this is a supported file. won't immediately break if the model is a different format than expected, but will log a notice.
 def amdCheckType(data):
     bs = NoeBitStream(data, 1)
@@ -44,6 +45,7 @@ def amdLoadModel(data, mdlList):
     print(amd.matList)
     mdl.setModelMaterials(NoeModelMaterials(amd.texList, amd.matList))
     mdl.setBones(amd.boneList)
+    mdl.setAnims(amd.animList)
     mdlList.append(mdl)
     return 1
     
@@ -53,6 +55,7 @@ class amdModel:
         self.matList = []
         self.texList = []
         self.boneList = []
+        self.animList = []
         self.tBoneList = []
         self.tWeightList = []
         self.tIndicesList = []
@@ -63,6 +66,7 @@ class amdModel:
         self.tryLoadSkin()
         self.readModel(bs)
         self.tryLoadTextures()
+        self.tryLoadAnimationPackage() # commented out due to being mostly broken atm.
         
     def readModel(self, bs):
         # set this ahead of time
@@ -72,10 +76,13 @@ class amdModel:
         Magic = bs.readBytes(4)
         modelCount = bs.readInt()
         modelOffset = bs.readInt()
+        print(Version, Magic, modelCount, modelOffset)
         UnkCount = bs.readInt()  # honestly no clue what this is meant to do. i know that it points to a set of values for each submesh regardless of split models.
         UnkOffset = bs.readInt()  # this is the pointer to it. 
         bs.seek(modelOffset, NOESEEK_ABS)  # jump straight to model reading
         # keep it limited to one model for now, handle more later
+        print(bs.tell())
+        
         SubmeshCount = bs.readInt()
         VertexCount = bs.readShort()
         NormalCount = bs.readShort()
@@ -86,6 +93,7 @@ class amdModel:
         NormalOffset = bs.readInt()
         VertColorOffset = bs.readInt()
         UVOffset = bs.readInt()
+        print(SubmeshCount, SubmeshInfoOffset, VertexCount, VertexOffset, NormalCount, NormalOffset, VertColorCount, VertColorOffset, UVCount, UVOffset)
         # Vertex stuff is easy to handle
         bs.seek(VertexOffset, NOESEEK_ABS)
         # now read data
@@ -114,6 +122,8 @@ class amdModel:
             unkFloats = bs.read(">4f")
             FaceDataSize = bs.readInt()
             FaceDataOffset = bs.readInt()
+            print(bs.tell())
+            print(FaceDataOffset)
             bs.seek(8, NOESEEK_REL)  # skip two nulls(?)
             cur = bs.tell()  # know where to return to once this submesh has been read
             bs.seek(FaceDataOffset, NOESEEK_ABS)
@@ -249,6 +259,18 @@ class amdModel:
             bs = NoeBitStream(bss, 1)
             TPLFile.LoadTextures(bs, self.fileName)
             self.texList = TPLFile.Textures
+            
+    def tryLoadAnimationPackage(self):
+        AnimationPackage = AnimPackage(self.boneList)
+        try:
+            print(self.filePath + self.fileName + ".ld")
+            bss = rapi.loadIntoByteArray(self.filePath + self.fileName + ".ld") 
+        except:
+            self.animList = []
+        else:
+            bs = NoeBitStream(bss, 1)
+            AnimationPackage.readAnimPack(bs)
+            self.animList = AnimationPackage.animList
 
 class TPLImage:
     def __init__(self):
@@ -626,3 +648,114 @@ class SkinData:
             bs.seek(cur)
             self.Weights[v1] = [weights[0], weights[1], weights[2], weights[3]]
             self.WeightIndices[v1] = [indices[0], indices[1], indices[2], indices[3]]
+            
+class AnimPackage:  # the best i can think
+    def __init__(self, bones):
+        self.animList = []
+        self.bones = bones
+    def readMot(self, bs, animIndex):
+        TransSets = []
+        RotSets = []
+        ScaleSets = []
+        kfBones = []
+        Version = bs.readFloat()
+        Magic = bs.readBytes(4)
+        EndFrame = bs.readFloat()
+        BoneCount = bs.readInt()
+        BoneInfoOffset = bs.readInt()
+        TransSetsCount = bs.readInt()
+        TransSetsOffset = bs.readInt()
+        ScaleSetsCount = bs.readInt()
+        ScaleSetsOffset = bs.readInt()
+        RotSetsCount = bs.readInt()
+        RotSetsOffset = bs.readInt()
+        # Setup lists
+        # Trans
+        bs.seek(TransSetsOffset, NOESEEK_ABS)
+        for i in range(TransSetsCount):
+            TransSets.append(bs.read(">3f"))
+        # Scale
+        bs.seek(ScaleSetsOffset, NOESEEK_ABS)
+        for i in range(ScaleSetsCount):
+            ScaleSets.append(bs.read(">3f"))
+        # Rot
+        bs.seek(RotSetsOffset, NOESEEK_ABS)
+        for i in range(RotSetsCount):
+            RotSets.append(bs.read(">4f"))
+        # next bone info
+        bs.seek(BoneInfoOffset, NOESEEK_ABS)
+        for i in range(BoneCount):
+            BoneIndex = bs.readInt()
+            RotActive = bs.readInt()
+            RotFrameCount = bs.readInt()
+            RotListOffset = bs.readInt()
+            TransActive = bs.readInt()
+            TransFrameCount = bs.readInt()
+            TransListOffset = bs.readInt()
+            ScaleActive = bs.readInt()
+            ScaleFrameCount = bs.readInt()
+            ScaleListOffset = bs.readInt()
+            BoneTransList = []
+            BoneRotList = []
+            BoneScaleList = []
+            cur = bs.tell()
+            # Lets get the rotations first
+            bs.seek(TransListOffset)
+            print(bs.tell())
+            for i in range(TransFrameCount):
+                Frame = bs.readFloat()
+                XComponentFromIndex = bs.readInt()
+                YComponentFromIndex = bs.readInt()
+                ZComponentFromIndex = bs.readInt()
+                print(Frame)
+                print(XComponentFromIndex)
+                # Assemble the frame into the BoneTransList, assuming that the frame uses only the transset from the first index
+                BoneTransList.append([Frame, TransSets[XComponentFromIndex]])
+            bs.seek(RotListOffset)
+            for i in range(RotFrameCount):
+                Frame = bs.readFloat()
+                XComponentFromIndex = bs.readInt()
+                YComponentFromIndex = bs.readInt()
+                ZComponentFromIndex = bs.readInt()
+                # Assemble the frame into the BoneTransList
+                BoneRotList.append([Frame, RotSets[XComponentFromIndex]])
+            bs.seek(ScaleListOffset)
+            for i in range(ScaleFrameCount):
+                Frame = bs.readFloat()
+                XComponentFromIndex = bs.readInt()
+                YComponentFromIndex = bs.readInt()
+                ZComponentFromIndex = bs.readInt()
+                # Assemble the frame into the BoneTransList
+                BoneScaleList.append([Frame, ScaleSets[XComponentFromIndex]])
+            # append data to kfBones list
+            kfValues_Trans = []
+            for item in BoneTransList:
+                kfValues_Trans.append(NoeKeyFramedValue(item[0], item[1]))
+            kfValues_Rot = []
+            for item in BoneRotList:
+                kfValues_Rot.append(NoeKeyFramedValue(item[0], NoeQuat((-item[1][0], -item[1][1], -item[1][2], item[1][3]))))
+            kfValues_Scale = []
+            for item in BoneScaleList:
+                kfValues_Scale.append(NoeKeyFramedValue(item[0], item[1]))
+            kfBone = NoeKeyFramedBone(BoneIndex)
+            kfBone.setRotation(kfValues_Rot)
+            kfBone.setTranslation(kfValues_Trans)
+            kfBone.setScale(kfValues_Scale, noesis.NOEKF_SCALE_VECTOR_3)
+            kfBones.append(kfBone)
+            bs.seek(cur)
+        self.animList.append(NoeKeyFramedAnim("Motion_" + str(animIndex), self.bones, kfBones, frameRate = 30.0))
+    def readAnimPack(self, bs):
+        FileVersion = bs.readFloat()  # should be 1.0
+        Magic = bs.readBytes(4)
+        MotCount = bs.readInt()
+        MotInfoOffset = bs.readInt()
+        bs.seek(MotInfoOffset)
+        for i in range(MotCount):
+            MotOffset = bs.readInt()
+            MotSize = bs.readInt()
+            bs.seek(8, NOESEEK_REL)
+            cur = bs.tell()
+            bs.seek(MotOffset, NOESEEK_ABS)
+            MotStream = NoeBitStream(bs.readBytes(MotSize), 1)  # create bitstream from motfile
+            self.readMot(MotStream, i)
+            bs.seek(cur, NOESEEK_ABS)
