@@ -703,7 +703,7 @@ class AnimPackage:  # the best i can think
             bs.seek(TransListOffset)
             print(bs.tell())
             for i in range(TransFrameCount):
-                Frame = bs.readFloat()
+                Frame = bs.readFloat() / 30
                 XComponentFromIndex = bs.readInt()
                 YComponentFromIndex = bs.readInt()
                 ZComponentFromIndex = bs.readInt()
@@ -713,7 +713,7 @@ class AnimPackage:  # the best i can think
                 BoneTransList.append([Frame, TransSets[XComponentFromIndex]])
             bs.seek(RotListOffset)
             for i in range(RotFrameCount):
-                Frame = bs.readFloat()
+                Frame = bs.readFloat() / 30
                 XComponentFromIndex = bs.readInt()
                 YComponentFromIndex = bs.readInt()
                 ZComponentFromIndex = bs.readInt()
@@ -721,7 +721,7 @@ class AnimPackage:  # the best i can think
                 BoneRotList.append([Frame, RotSets[XComponentFromIndex]])
             bs.seek(ScaleListOffset)
             for i in range(ScaleFrameCount):
-                Frame = bs.readFloat()
+                Frame = bs.readFloat() / 30
                 XComponentFromIndex = bs.readInt()
                 YComponentFromIndex = bs.readInt()
                 ZComponentFromIndex = bs.readInt()
